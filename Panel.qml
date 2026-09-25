@@ -1062,6 +1062,8 @@ Panel {
                   font.family: fontFamily
                   font.pixelSize: Style.font.caption
                   font.bold: true
+                  elide: Text.ElideRight
+                  Layout.fillWidth: true
                 }
 
                 UsageMeter {
@@ -1089,9 +1091,11 @@ Panel {
                   readonly property var previewLines: root.previewFor(modelData.terminalHandle)
                   visible: previewLines.length > 0
                   Layout.fillWidth: true
+                  Layout.preferredWidth: 0
                   implicitHeight: previewText.implicitHeight + Style.space(8)
                   radius: Style.space(3)
                   color: Qt.rgba(0, 0, 0, 0.25)
+                  clip: true
 
                   Text {
                     id: previewText
@@ -1103,7 +1107,6 @@ Panel {
                     font.family: "monospace"
                     font.pixelSize: Style.font.caption
                     wrapMode: Text.NoWrap
-                    elide: Text.ElideRight
                   }
                 }
               }

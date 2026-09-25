@@ -508,7 +508,7 @@ def read_terminal(cli_path, handle, limit=12):
     payload = unwrap_result(result.get("payload"))
     terminal = payload.get("terminal") if isinstance(payload, dict) else None
     tail = terminal.get("tail") if isinstance(terminal, dict) else None
-    lines = [str(line).rstrip() for line in tail] if isinstance(tail, list) else []
+    lines = [str(line).rstrip()[:200] for line in tail] if isinstance(tail, list) else []
     # Keep only the last non-empty stretch, bounded by limit.
     while lines and lines[-1] == "":
         lines.pop()
