@@ -49,6 +49,14 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable gruut.orca-status --section right
 ```
 
+## Remove
+
+```bash
+omarchy plugin remove gruut.orca-status
+```
+
+Removal disables the widget and deletes the plugin directory. Settings already saved in `shell.json` stay there.
+
 ## Configuration
 
 In `~/.config/omarchy/shell.json` under the widget entry:
