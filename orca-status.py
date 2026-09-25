@@ -495,6 +495,37 @@ def switch_terminal(cli_path, handle):
     return {"ok": True}
 
 
+def open_changed(cli_path, path):
+    orca_bin = find_orca(cli_path)
+    if not orca_bin:
+        return {"ok": False, "error": "Orca CLI not found."}
+    if not path:
+        return {"ok": False, "error": "Missing worktree path."}
+    result = run_orca(orca_bin, "file", "open-changed", "--mode", "diff",
+                      "--worktree", f"path:{path}", "--json")
+    if not result.get("ok"):
+        return {"ok": False, "error": result.get("error") or "Unable to open changed files."}
+    focus_orca_window()
+    return {"ok": True}
+
+
+def launch_orca(cli_path):
+    orca_bin = find_orca(cli_path)
+    if not orca_bin:
+        return {"ok": False, "error": "Orca CLI not found."}
+    try:
+        subprocess.Popen(
+            [orca_bin, "open"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        return {"ok": False, "error": f"Unable to launch Orca: {error}"}
+    return {"ok": True}
+
+
 def focus_orca_window():
     try:
         subprocess.run(
@@ -536,6 +567,10 @@ def main(argv):
     command = args[0] if args else ""
     if command == "switch":
         return switch_terminal(cli_path, flag_value(argv, "--terminal"))
+    if command == "open-changed":
+        return open_changed(cli_path, flag_value(argv, "--path"))
+    if command == "launch":
+        return launch_orca(cli_path)
     if command and command not in ("status", ""):
         return {"ok": False, "error": f"Unknown command: {command}"}
     return fetch_status(cli_path)

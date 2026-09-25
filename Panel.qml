@@ -198,6 +198,26 @@ Panel {
     setStatus("Opened " + row.path, false)
   }
 
+  function openChangedFiles(row) {
+    if (!row || !row.path) {
+      setStatus("No project path for this workspace.", true)
+      return
+    }
+    actionProc.pendingOkText = "Opened changed files in Orca."
+    var argv = ["python3", root.script, "open-changed", "--path", String(row.path)]
+    if (orcaCliPath !== "") argv = argv.concat(["--cli", orcaCliPath])
+    actionProc.command = argv
+    actionProc.running = true
+  }
+
+  function launchOrca() {
+    actionProc.pendingOkText = "Starting Orca…"
+    var argv = ["python3", root.script, "launch"]
+    if (orcaCliPath !== "") argv = argv.concat(["--cli", orcaCliPath])
+    actionProc.command = argv
+    actionProc.running = true
+  }
+
   function activateRow(row) {
     if (!row) return
     if (row.agents && row.agents.length > 0) {
@@ -250,6 +270,7 @@ Panel {
     if (text === "o" || text === "O") { openPath(currentRow); return }
     if (text === "f" || text === "F") { focusWorktree(currentRow); return }
     if (text === "e" || text === "E") { toggleExpanded(currentRow); return }
+    if (text === "d" || text === "D") { openChangedFiles(currentRow); return }
   }
 
   Process {
@@ -272,6 +293,20 @@ Panel {
         var result = Model.parseResult(text)
         root.setStatus(Model.switchResultText(result), !result.ok)
         if (result.ok) root.close()
+      }
+    }
+  }
+
+  Process {
+    id: actionProc
+    property string pendingOkText: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var result = Model.parseResult(text)
+        if (result.ok) root.setStatus(actionProc.pendingOkText, false)
+        else root.setStatus(result.error || "Action failed.", true)
+        root.refresh()
       }
     }
   }
@@ -534,15 +569,26 @@ Panel {
             }
           }
 
-          Text {
-            textFormat: Text.PlainText
-            visible: root.offline && root.visibleProjects.length === 0
+          Column {
             width: parent.width
-            text: root.offline ? "Orca is not running." : "No projects registered."
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            horizontalAlignment: Text.AlignHCenter
+            visible: root.offline && root.visibleProjects.length === 0
+            spacing: Style.space(8)
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              text: "Orca is not running."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              horizontalAlignment: Text.AlignHCenter
+            }
+
+            Ui.Button {
+              anchors.horizontalCenter: parent.horizontalCenter
+              text: "Start Orca"
+              onClicked: root.launchOrca()
+            }
           }
 
           PanelSectionHeader {
@@ -596,6 +642,10 @@ Panel {
                   root.setCursor(index)
                   root.openPath(modelData)
                 }
+                onDiffRequested: {
+                  root.setCursor(index)
+                  root.openChangedFiles(modelData)
+                }
                 onAgentClicked: function(agent) {
                   root.setCursor(index)
                   root.focusAgent(agent)
@@ -613,6 +663,7 @@ Panel {
             KeyHint { keyLabel: "⏎"; action: "expand" }
             KeyHint { keyLabel: "f"; action: "focus in Orca" }
             KeyHint { keyLabel: "o"; action: "open path" }
+            KeyHint { keyLabel: "d"; action: "changed files" }
             KeyHint { keyLabel: "e"; action: "expand agents" }
             KeyHint { keyLabel: "/"; action: "filter" }
           }
@@ -804,10 +855,12 @@ Panel {
     property bool rowHover: false
     property bool focusHover: false
     property bool openHover: false
-    readonly property bool hovered: rowHover || focusHover || openHover
+    property bool diffHover: false
+    readonly property bool hovered: rowHover || focusHover || openHover || diffHover
     signal clicked()
     signal focusRequested()
     signal openRequested()
+    signal diffRequested()
     signal agentClicked(var agent)
 
     radius: Style.cornerRadius
@@ -992,6 +1045,15 @@ Panel {
         fontFamily: worktreeRow.fontFamily
         onClicked: worktreeRow.focusRequested()
         onHovered: function(isHovered) { worktreeRow.focusHover = isHovered }
+      }
+
+      PanelActionButton {
+        iconText: "󰦓"
+        tooltipText: "Open changed files (d)"
+        foreground: worktreeRow.foreground
+        fontFamily: worktreeRow.fontFamily
+        onClicked: worktreeRow.diffRequested()
+        onHovered: function(isHovered) { worktreeRow.diffHover = isHovered }
       }
 
       PanelActionButton {
