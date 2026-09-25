@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "gruut.orca-status",
+  "name": "Orca Status",
+  "version": "1.0.0",
+  "author": "gruut",
+  "license": "MIT",
+  "description": "Orca projects and agent status in the Omarchy bar: a traffic-light glance at working, waiting, and blocked agents, with a panel for workspaces.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Orca Status",
+    "description": "Traffic-light status for Orca agents and a panel of projects and workspaces",
+    "category": "Developer Tools",
+    "aliases": ["orca", "orca-status", "agents"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 12,
+      "orcaCliPath": "",
+      "showWhenIdle": false
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Background refresh (seconds)",
+        "description": "How often the bar updates while the panel is closed. The open panel always refreshes every 2.5 seconds.",
+        "min": 3,
+        "max": 120,
+        "step": 1,
+        "defaultValue": 12
+      },
+      {
+        "key": "orcaCliPath",
+        "type": "string",
+        "label": "Orca CLI path",
+        "description": "Path to the orca binary. Leave empty to auto-detect.",
+        "defaultValue": ""
+      },
+      {
+        "key": "showWhenIdle",
+        "type": "boolean",
+        "label": "Show when idle",
+        "description": "Keep the bar icon visible even when no agents are active.",
+        "defaultValue": false
+      }
+    ]
+  }
+}
