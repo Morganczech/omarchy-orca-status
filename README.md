@@ -18,14 +18,14 @@ Traffic-light status for [Orca](https://orca.dev) agents in the Omarchy bar, wit
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<user>/omarchy-orca-status.git --enable --yes
+omarchy plugin add https://github.com/Morganczech/omarchy-orca-status.git --enable --yes
 omarchy bar move gruut.orca-status --section right
 ```
 
 Manual install:
 
 ```bash
-git clone https://github.com/<user>/omarchy-orca-status.git ~/.config/omarchy/plugins/gruut.orca-status
+git clone https://github.com/Morganczech/omarchy-orca-status.git ~/.config/omarchy/plugins/gruut.orca-status
 omarchy-shell shell rescanPlugins
 omarchy plugin enable gruut.orca-status --section right
 ```
