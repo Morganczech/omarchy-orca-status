@@ -61,7 +61,7 @@ function agentGlyph(agentType, displayLabel) {
     case "claude-code": return "󰭹"
     case "omp": return "󰚩"
     case "hermes": return "󰚩"
-    default: return "󰚩"
+    default: return "󰆍"
   }
 }
 
