@@ -8,6 +8,8 @@ Traffic-light status for [Orca](https://orca.dev) agents in the Omarchy bar, wit
 - **Projects** — durable Orca projects with active workspace counts
 - **Workspaces** — worktrees with agent state, preview text, and expandable agent details
 - **Actions** — focus a workspace in Orca (`orca terminal switch`) or open its path
+- **Pin (keep open)** — pin the panel as a card in the top-right corner; it stays open while you work in other windows and never steals keyboard or mouse input. Unpin closes it.
+- **Resizable panel** — drag the grip at the bottom edge to change the panel height
 
 ## Requirements
 
@@ -38,7 +40,8 @@ In `~/.config/omarchy/shell.json` under the widget entry:
 |---------|---------|-------------|
 | `refreshIntervalSec` | 12 | Background refresh while panel is closed |
 | `orcaCliPath` | `""` | Custom path to `orca` binary |
-| `showWhenIdle` | `false` | Keep bar icon visible when no agents are active |
+| `showWhenIdle` | `true` | Keep bar icon visible when no agents are active |
+| `keepOpen` | `false` | Pin the panel so it stays open when clicking another window (also toggled by the pin button in the panel) |
 
 ## Keyboard shortcuts
 
@@ -51,6 +54,12 @@ In `~/.config/omarchy/shell.json` under the widget entry:
 | `e` | Toggle agent details |
 | `/` | Filter workspaces |
 | `r` | Refresh |
+| `Esc` | Clear filter / close panel |
+
+## Panel behavior
+
+- Opening the panel shows a card below the bar icon; clicking anywhere outside it closes it.
+- The pin button (or the `keepOpen` setting) keeps the card open in the top-right corner. While pinned, keyboard and mouse input outside the card go to your other windows as usual; unpinning closes the card.
 
 ## Development
 

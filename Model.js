@@ -23,12 +23,70 @@ function matches(row, query) {
   return true
 }
 
+function worktreeHasPresence(row) {
+  if (!row) return false
+  if (row.agents && row.agents.length > 0) return true
+  if (row.liveTerminalCount > 0) return true
+  if (row.state === "working" || row.state === "waiting" || row.state === "blocked") return true
+  return false
+}
+
 function filteredWorktrees(worktrees, query) {
   var out = []
   for (var i = 0; i < worktrees.length; i++) {
+    if (!worktreeHasPresence(worktrees[i])) continue
     if (matches(worktrees[i], query)) out.push(worktrees[i])
   }
   return out
+}
+
+function workspaceStatusColor(status) {
+  switch (String(status || "").toLowerCase()) {
+    case "in-progress": return "#eab308"
+    case "in-review": return "#22c55e"
+    case "completed":
+    case "done": return "#e7b89a"
+    case "todo": return "#a1a1aa"
+    default: return "#a1a1aa"
+  }
+}
+
+function projectInitials(name) {
+  var text = String(name || "").replace(/^\s+|\s+$/g, "")
+  if (text === "") return "?"
+  var words = text.split(/[\s._/-]+/)
+  var parts = []
+  for (var i = 0; i < words.length; i++) {
+    if (words[i] !== "") parts.push(words[i])
+  }
+  if (parts.length >= 2) return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase()
+  var word = parts.length > 0 ? parts[0] : text
+  return word.substring(0, 2).toUpperCase()
+}
+
+function workspaceStatusLabel(status) {
+  switch (String(status || "").toLowerCase()) {
+    case "in-progress": return "In progress"
+    case "in-review": return "In review"
+    case "completed":
+    case "done": return "Done"
+    case "todo": return "Todo"
+    default: return "Todo"
+  }
+}
+
+function usageColor(percent, palette) {
+  var colors = palette || {}
+  var value = Number(percent)
+  if (value >= 95) return colors.urgent || "#f38ba8"
+  if (value >= 80) return colors.warning || "#fab387"
+  return colors.success || "#a6e3a1"
+}
+
+function sameUsage(left, right) {
+  if (!left || !right) return false
+  return String(left.model || "") === String(right.model || "")
+    && Math.round(Number(left.percent)) === Math.round(Number(right.percent))
 }
 
 function stateColor(state, palette) {

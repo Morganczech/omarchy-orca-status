@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 import qs.Ui as Ui
@@ -14,10 +15,11 @@ Panel {
   ipcTarget: "orca-status"
   manageIpc: false
 
-  property var data: ({})
+  property var payload: ({})
   property var worktrees: []
   property var projects: []
   property string filterText: ""
+  readonly property var visibleProjects: projects.filter(function(project) { return projectHasPresence(project) })
   property string statusText: ""
   property bool statusIsError: false
   property bool loaded: false
@@ -41,6 +43,33 @@ Panel {
   readonly property bool showWhenIdle: setting("showWhenIdle", true) !== false
   readonly property string orcaCliPath: String(setting("orcaCliPath", "") || "")
   readonly property string script: Qt.resolvedUrl("orca-status.py").toString().replace("file://", "")
+  property bool pinned: false
+
+  Component.onCompleted: pinned = setting("keepOpen", false) === true
+
+  function setKeepOpen(value) {
+    pinned = value === true
+    var entry = { id: moduleName }
+    for (var existing in settings) if (existing !== "id") entry[existing] = settings[existing]
+    entry.keepOpen = pinned
+    settings = entry
+    if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
+      bar.shell.updateEntryInline(moduleName, entry)
+    placePanelBody()
+    if (!pinned) forceClose()
+  }
+
+  function close() { controller.hide() }
+
+  function forceClose() { controller.hide() }
+
+  function toggle() { opened ? forceClose() : open() }
+
+  function closeForPopoutSwitch() {
+    popoutSwitchClosing = true
+    forceClose()
+    Qt.callLater(function() { popoutSwitchClosing = false })
+  }
   readonly property var palette: ({ urgent: urgent, warning: warning, success: success, dim: dim })
   property int summaryBlocked: 0
   property int summaryWaiting: 0
@@ -68,6 +97,20 @@ Panel {
     if (!fetchProc.running) fetchProc.running = true
   }
 
+  function projectHasPresence(project) {
+    if (!project) return false
+    if ((project.activeWorktreeCount || 0) > 0) return true
+    var rows = Model.worktreesForProject(project, worktrees)
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i]
+      if (!row) continue
+      if (row.liveTerminalCount > 0) return true
+      if (row.agents && row.agents.length > 0) return true
+      if (row.state === "working" || row.state === "waiting" || row.state === "blocked") return true
+    }
+    return false
+  }
+
   function setStatus(text, isError) {
     statusText = text
     statusIsError = isError === true
@@ -78,7 +121,7 @@ Panel {
     loaded = true
     if (!result.ok) {
       offline = result.offline === true
-      data = result
+      payload = result
       worktrees = []
       projects = []
       semaphore = "gray"
@@ -89,7 +132,7 @@ Panel {
       return
     }
     offline = false
-    data = result
+    payload = result
     worktrees = result.worktrees || []
     projects = result.projects || []
     semaphore = result.semaphore || "gray"
@@ -116,17 +159,26 @@ Panel {
     expandedWorktreeId = expandedWorktreeId === row.worktreeId ? "" : row.worktreeId
   }
 
-  function focusWorktree(row) {
-    if (!row) return
-    if (!row.terminalHandle) {
-      setStatus("No live terminal to focus for this workspace.", true)
+  function focusHandle(handle, label) {
+    if (!handle) {
+      setStatus("No live terminal to focus.", true)
       return
     }
-    switchProc.pendingLabel = Model.rowTitle(row)
-    var argv = ["python3", root.script, "switch", "--terminal", String(row.terminalHandle)]
+    switchProc.pendingLabel = label || "workspace"
+    var argv = ["python3", root.script, "switch", "--terminal", String(handle)]
     if (orcaCliPath !== "") argv = argv.concat(["--cli", orcaCliPath])
     switchProc.command = argv
     switchProc.running = true
+  }
+
+  function focusWorktree(row) {
+    if (!row) return
+    focusHandle(row.terminalHandle, Model.rowTitle(row))
+  }
+
+  function focusAgent(agent) {
+    if (!agent) return
+    focusHandle(agent.terminalHandle, Model.agentLabel(agent))
   }
 
   function openPath(row) {
@@ -140,8 +192,8 @@ Panel {
 
   function activateRow(row) {
     if (!row) return
-    if (expandedWorktreeId !== row.worktreeId && row.agents && row.agents.length > 0) {
-      expandedWorktreeId = row.worktreeId
+    if (row.agents && row.agents.length > 0) {
+      toggleExpanded(row)
       return
     }
     focusWorktree(row)
@@ -252,20 +304,19 @@ Panel {
     search.text = ""
     if (panelFlick) panelFlick.contentY = 0
     refresh()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    if (!pinned) Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   WidgetButton {
     id: button
-    anchors.left: parent.left
-    anchors.top: parent.top
-    anchors.bottom: parent.bottom
+    anchors.fill: parent
     bar: root.bar
-    text: root.barIcon !== "" ? root.barIcon : "\uDB81\uDC8D"
-    tooltipText: loaded ? Model.barTooltip(data) : "Orca Status"
-    useActiveColor: false
-    active: false
-    foreground: root.iconColor
+    text: root.barIcon !== "" ? root.barIcon : "󰆍"
+    tooltipText: loaded ? Model.barTooltip(payload) : "Orca Status"
+    useActiveColor: hasLiveActivity
+    active: hasLiveActivity
+    activeColor: root.iconColor
+    foreground: hasLiveActivity ? root.iconColor : (bar ? bar.barForeground : Color.foreground)
     horizontalMargin: 8.5
     onPressed: function(code) {
       if (code === Qt.RightButton) root.refresh()
@@ -273,20 +324,15 @@ Panel {
     }
   }
 
-  Rectangle {
-    id: statusDot
-    visible: hasLiveActivity
-    z: 100
-    anchors.right: button.right
-    anchors.rightMargin: Style.space(2)
-    anchors.top: button.top
-    anchors.topMargin: Style.space(4)
-    width: Style.space(9)
-    height: width
-    radius: width / 2
-    color: root.iconColor
-    border.width: 2
-    border.color: Color.background
+  property real userPanelHeight: 0
+  property Item popupHost: null
+
+  function placePanelBody() {
+    if (!keyCatcher || !resizeGrip) return
+    var host = stickHost
+    if (!host) return
+    keyCatcher.parent = host
+    resizeGrip.parent = host
   }
 
   KeyboardPanel {
@@ -294,10 +340,18 @@ Panel {
     bar: root.bar
     anchorItem: button
     owner: root
-    open: root.opened
+    open: false
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(520))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(640))
+    contentHeight: root.userPanelHeight > 0
+      ? panel.cappedContentHeight(root.userPanelHeight)
+      : panel.fittedContentHeight(column.implicitHeight, Style.space(640))
+
+    Component.onCompleted: {
+      root.popupHost = keyCatcher.parent
+      root.placePanelBody()
+    }
+    onOpenChanged: if (open) root.placePanelBody()
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -311,60 +365,75 @@ Panel {
         }
       }
       onActivateRequested: root.activateRow(root.currentRow)
-      onCloseRequested: root.close()
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onCloseRequested: root.forceClose()
       onTextKey: function(t) { root.handleTextKey(t) }
 
       Flickable {
         id: panelFlick
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(12)
         contentWidth: width
         contentHeight: column.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: ScrollBar {
+          id: panelScroll
+          policy: ScrollBar.AsNeeded
+          implicitWidth: Style.space(6)
+          contentItem: Rectangle {
+            implicitWidth: Style.space(6)
+            radius: width / 2
+            color: Util.alpha(root.foreground, panelScroll.pressed ? 0.7 : 0.45)
+          }
+        }
 
         Column {
           id: column
-          width: panelFlick.width
+          width: panelFlick.width - (panelScroll.visible ? panelScroll.width + Style.space(4) : 0)
           spacing: Style.space(10)
 
           PanelHero {
             width: parent.width
             title: "Orca Status"
-            meta: root.offline ? "Offline" : (root.loaded ? Model.headline(root.data) : "Reading status")
-            detail: root.offline ? "" : Model.stateLabel(root.data.summary ? root.data.summary.overallState : "inactive")
+            meta: root.offline ? "Offline" : (root.loaded ? Model.headline(root.payload) : "Reading status")
+            detail: ""
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconComponent: Component {
-              Row {
-                spacing: Style.space(6)
-                Text {
-                  textFormat: Text.PlainText
-                  text: "󰚩"
-                  color: root.offline ? root.dim : root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.display
-                }
-                Rectangle {
-                  visible: !root.offline
-                  width: Style.space(8)
-                  height: Style.space(8)
-                  radius: width / 2
-                  anchors.verticalCenter: parent.verticalCenter
-                  color: Model.semaphoreColor(root.semaphore, root.palette)
-                }
+              Text {
+                textFormat: Text.PlainText
+                text: "󰚩"
+                color: root.offline ? root.dim : root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.display
               }
             }
             trailingControl: Component {
-              PanelActionButton {
-                iconText: "󰑐"
-                tooltipText: "Refresh (r)"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                onClicked: root.refresh()
+              Row {
+                spacing: Style.space(4)
+
+                PanelActionButton {
+                  iconText: "󰤱"
+                  tooltipText: root.pinned ? "Unpin" : "Keep open"
+                  hasCursor: root.pinned
+                  foreground: root.foreground
+                  hoverColor: root.pinned ? root.accent : root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.setKeepOpen(!root.pinned)
+                }
+
+                PanelActionButton {
+                  iconText: "󰑐"
+                  tooltipText: "Refresh (r)"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.refresh()
+                }
               }
             }
           }
@@ -400,26 +469,38 @@ Panel {
           }
 
           PanelSectionHeader {
+            visible: root.visibleProjects.length > 0
             text: "PROJECTS"
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
 
-          Repeater {
-            model: root.projects
-            delegate: ProjectRow {
-              width: column.width
-              project: modelData
-              worktrees: root.worktrees
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              palette: root.palette
+          Flow {
+            width: parent.width
+            spacing: Style.space(6)
+            visible: root.visibleProjects.length > 0
+
+            Repeater {
+              model: root.visibleProjects
+              delegate: ProjectChip {
+                project: modelData
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                selected: root.filterText !== "" && root.filterText === (modelData.displayName || "")
+                onClicked: {
+                  var name = modelData.displayName || ""
+                  if (name !== "" && root.filterText === name) search.text = ""
+                  else search.text = name
+                  root.cursorActive = true
+                  root.cursorIndex = 0
+                }
+              }
             }
           }
 
           Text {
             textFormat: Text.PlainText
-            visible: root.projects.length === 0
+            visible: root.offline && root.visibleProjects.length === 0
             width: parent.width
             text: root.offline ? "Orca is not running." : "No projects registered."
             color: root.dim
@@ -471,9 +552,17 @@ Panel {
                   root.setCursor(index)
                   root.activateRow(modelData)
                 }
-                onExpandRequested: {
+                onFocusRequested: {
                   root.setCursor(index)
-                  root.toggleExpanded(modelData)
+                  root.focusWorktree(modelData)
+                }
+                onOpenRequested: {
+                  root.setCursor(index)
+                  root.openPath(modelData)
+                }
+                onAgentClicked: function(agent) {
+                  root.setCursor(index)
+                  root.focusAgent(agent)
                 }
               }
             }
@@ -485,7 +574,7 @@ Panel {
             width: parent.width
             spacing: Style.space(10)
             KeyHint { keyLabel: "↑↓"; action: "move" }
-            KeyHint { keyLabel: "⏎"; action: "expand / focus" }
+            KeyHint { keyLabel: "⏎"; action: "expand" }
             KeyHint { keyLabel: "f"; action: "focus in Orca" }
             KeyHint { keyLabel: "o"; action: "open path" }
             KeyHint { keyLabel: "e"; action: "expand agents" }
@@ -493,61 +582,176 @@ Panel {
           }
         }
       }
+
+      MouseArea {
+        id: resizeGrip
+        z: 2
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: Style.space(12)
+        hoverEnabled: true
+        cursorShape: Qt.SizeVerCursor
+        property real originY: 0
+        property real originHeight: 0
+        onPressed: function(mouse) {
+          var point = mapToGlobal(mouse.x, mouse.y)
+          originY = point.y
+          originHeight = panel.contentHeight
+        }
+        onPositionChanged: function(mouse) {
+          if (!pressed) return
+          var dy = mapToGlobal(mouse.x, mouse.y).y - originY
+          if (panel.barPos === "bottom") dy = -dy
+          var maxHeight = panel.availableCardHeight > 0 ? panel.availableCardHeight : Style.space(900)
+          root.userPanelHeight = Math.max(Style.space(240), Math.min(maxHeight, originHeight + dy))
+        }
+
+        Rectangle {
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.space(4)
+          width: Style.space(36)
+          height: Style.space(3)
+          radius: height / 2
+          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, parent.containsMouse ? 0.7 : 0.35)
+        }
+      }
     }
   }
 
-  component ProjectRow: Rectangle {
+  // Fullscreen transparent surface behind the card: any click outside the
+  // card dismisses the panel while unpinned. Pinning simply unmaps it, so
+  // the card window itself never changes size or position (avoids Hyprland
+  // layer-resize animation flashes).
+  PanelWindow {
+    id: dismissWindow
+    visible: root.opened && !root.pinned
+    screen: panel.screen
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Top
+    WlrLayershell.namespace: "omarchy-orca-status-dismiss"
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+    anchors.left: true
+    anchors.right: true
+    anchors.top: true
+    anchors.bottom: true
+
+    MouseArea {
+      anchors.fill: parent
+      acceptedButtons: Qt.AllButtons
+      onPressed: root.forceClose()
+    }
+  }
+
+  PanelWindow {
+    id: stickWindow
+    visible: root.opened
+    screen: panel.screen
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "omarchy-orca-status-pin"
+    WlrLayershell.keyboardFocus: root.pinned ? WlrKeyboardFocus.None : WlrKeyboardFocus.OnDemand
+
+    anchors.left: false
+    anchors.bottom: false
+    anchors.top: true
+    anchors.right: true
+    implicitWidth: Math.max(Style.space(320), panel.contentWidth)
+    implicitHeight: Math.max(Style.space(240), panel.contentHeight)
+    margins.top: (root.bar ? root.bar.barSize : Style.bar.sizeHorizontal) + Style.gapsOut
+    margins.right: Style.gapsOut
+
+    BorderSurface {
+      id: stickCard
+      anchors.fill: parent
+      color: Color.popups.background
+      borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+      padding: Style.spacing.popupPadding
+      radius: Style.cornerRadius
+
+      Item {
+        id: stickHost
+        anchors.fill: parent
+        anchors.topMargin: stickCard.contentTopInset
+        anchors.rightMargin: stickCard.contentRightInset
+        anchors.bottomMargin: stickCard.contentBottomInset
+        anchors.leftMargin: stickCard.contentLeftInset
+      }
+    }
+
+    onVisibleChanged: root.placePanelBody()
+  }
+
+  component ProjectChip: Rectangle {
+    id: projectChip
     property var project
-    property var worktrees
-    property var palette
     property color foreground
     property string fontFamily
+    property bool selected: false
+    property bool hovered: false
+    signal clicked()
 
-    radius: Style.cornerRadius
-    color: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.04)
-    implicitHeight: row.implicitHeight + Style.space(12)
+    readonly property color badge: project.badgeColor || "#525252"
+    readonly property color ink: badge.hslLightness > 0.62 ? "#1a1a1a" : "#f4f4f5"
+    readonly property string initials: Model.projectInitials(project.displayName)
+    readonly property string fullName: project.displayName || "Project"
 
-    RowLayout {
-      id: row
+    implicitWidth: chipRow.implicitWidth + Style.space(16)
+    implicitHeight: Style.space(28)
+    radius: height / 2
+    color: hovered ? Qt.lighter(badge, 1.15) : badge
+    border.width: selected ? 2 : 0
+    border.color: foreground
+
+    MouseArea {
+      id: chipMouse
       anchors.fill: parent
-      anchors.margins: Style.space(8)
-      spacing: Style.space(8)
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onContainsMouseChanged: projectChip.hovered = containsMouse
+      onClicked: projectChip.clicked()
+    }
 
-      Rectangle {
-        width: Style.space(8)
-        height: Style.space(8)
-        radius: width / 2
-        color: project.badgeColor || root.dim
-      }
+    Row {
+      id: chipRow
+      anchors.centerIn: parent
+      spacing: Style.space(6)
 
-      ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Style.space(2)
-
-        Text {
-          textFormat: Text.PlainText
-          text: project.displayName || "Project"
-          color: foreground
-          font.family: fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-        }
-
-        Text {
-          textFormat: Text.PlainText
-          text: project.activeWorktreeCount + " active · " + project.worktreeCount + " workspace" + (project.worktreeCount === 1 ? "" : "s")
-          color: root.dim
-          font.family: fontFamily
-          font.pixelSize: Style.font.caption
-        }
+      Text {
+        textFormat: Text.PlainText
+        text: projectChip.initials
+        color: projectChip.ink
+        font.family: fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        anchors.verticalCenter: parent.verticalCenter
       }
 
       Rectangle {
-        width: Style.space(8)
-        height: Style.space(8)
+        width: Style.space(14)
+        height: Style.space(14)
         radius: width / 2
-        color: Model.stateColor(project.worstState, palette)
+        color: projectChip.ink
+        anchors.verticalCenter: parent.verticalCenter
+
+        Rectangle {
+          anchors.centerIn: parent
+          width: Style.space(8)
+          height: Style.space(8)
+          radius: width / 2
+          color: Model.workspaceStatusColor(project.workspaceStatus)
+        }
       }
+    }
+
+    PanelToolTip {
+      visible: chipMouse.containsMouse
+      text: projectChip.fullName + " · " + Model.workspaceStatusLabel(project.workspaceStatus)
+      fontFamily: fontFamily
     }
   }
 
@@ -560,29 +764,28 @@ Panel {
     property var palette
     property color foreground
     property string fontFamily
+    property bool rowHover: false
+    property bool focusHover: false
+    property bool openHover: false
+    readonly property bool hovered: rowHover || focusHover || openHover
     signal clicked()
-    signal expandRequested()
+    signal focusRequested()
+    signal openRequested()
+    signal agentClicked(var agent)
 
     radius: Style.cornerRadius
-    color: selected
+    color: selected || hovered
       ? Qt.rgba(foreground.r, foreground.g, foreground.b, 0.10)
       : Qt.rgba(foreground.r, foreground.g, foreground.b, 0.04)
     implicitHeight: content.implicitHeight + Style.space(12)
 
     Column {
       id: content
+      z: 0
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.margins: Style.space(8)
       spacing: Style.space(6)
-
-      MouseArea {
-        width: parent.width
-        height: header.implicitHeight
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: worktreeRow.clicked()
-      }
 
       RowLayout {
         id: header
@@ -593,7 +796,7 @@ Panel {
           width: Style.space(8)
           height: Style.space(8)
           radius: width / 2
-          color: Model.stateColor(worktree.state, palette)
+          color: Model.workspaceStatusColor(worktree.workspaceStatus)
         }
 
         ColumnLayout {
@@ -624,25 +827,21 @@ Panel {
 
         Text {
           textFormat: Text.PlainText
-          text: Model.stateLabel(worktree.state)
-          color: Model.stateColor(worktree.state, palette)
+          visible: !(worktreeRow.hovered || selected)
+          text: Model.workspaceStatusLabel(worktree.workspaceStatus)
+          color: Model.workspaceStatusColor(worktree.workspaceStatus)
           font.family: fontFamily
           font.pixelSize: Style.font.caption
           font.bold: true
         }
       }
 
-      Text {
-        textFormat: Text.PlainText
+      UsageMeter {
         width: parent.width
-        visible: String(worktree.summary || "") !== ""
-        text: worktree.summary
-        color: root.dim
-        font.family: fontFamily
-        font.pixelSize: Style.font.bodySmall
-        wrapMode: Text.WordWrap
-        maximumLineCount: 2
-        elide: Text.ElideRight
+        usage: worktree.usage
+        palette: palette
+        foreground: foreground
+        fontFamily: fontFamily
       }
 
       Column {
@@ -685,6 +884,15 @@ Panel {
                   font.bold: true
                 }
 
+                UsageMeter {
+                  Layout.fillWidth: true
+                  visible: modelData.usage && !Model.sameUsage(modelData.usage, worktree.usage)
+                  usage: modelData.usage
+                  palette: palette
+                  foreground: foreground
+                  fontFamily: fontFamily
+                }
+
                 Text {
                   textFormat: Text.PlainText
                   text: modelData.prompt || modelData.lastAssistantMessage || ""
@@ -707,9 +915,88 @@ Panel {
                 font.bold: true
               }
             }
+
+            MouseArea {
+              anchors.fill: parent
+              z: 1
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: worktreeRow.agentClicked(modelData)
+            }
           }
         }
       }
+    }
+
+    MouseArea {
+      z: 1
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: parent.top
+      height: header.implicitHeight + Style.space(16)
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onContainsMouseChanged: worktreeRow.rowHover = containsMouse
+      onClicked: worktreeRow.clicked()
+    }
+
+    Row {
+      z: 2
+      anchors.right: parent.right
+      anchors.top: parent.top
+      anchors.margins: Style.space(8)
+      visible: worktreeRow.hovered || selected
+      spacing: Style.space(4)
+
+      PanelActionButton {
+        iconText: "󰆍"
+        tooltipText: "Focus in Orca (f)"
+        foreground: worktreeRow.foreground
+        fontFamily: worktreeRow.fontFamily
+        onClicked: worktreeRow.focusRequested()
+        onHovered: function(isHovered) { worktreeRow.focusHover = isHovered }
+      }
+
+      PanelActionButton {
+        iconText: "󰷏"
+        tooltipText: "Open path (o)"
+        foreground: worktreeRow.foreground
+        fontFamily: worktreeRow.fontFamily
+        onClicked: worktreeRow.openRequested()
+        onHovered: function(isHovered) { worktreeRow.openHover = isHovered }
+      }
+    }
+  }
+
+  component UsageMeter: RowLayout {
+    property var usage
+    property var palette
+    property color foreground
+    property string fontFamily
+    visible: usage && usage.label
+    spacing: Style.space(8)
+
+    Rectangle {
+      Layout.fillWidth: true
+      Layout.alignment: Qt.AlignVCenter
+      implicitHeight: Style.space(3)
+      radius: height / 2
+      color: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.14)
+
+      Rectangle {
+        width: parent.width * Math.max(0, Math.min(1, Number(usage && usage.percent) / 100))
+        height: parent.height
+        radius: height / 2
+        color: Model.usageColor(usage ? usage.percent : 0, palette)
+      }
+    }
+
+    Text {
+      textFormat: Text.PlainText
+      text: usage && usage.label ? usage.label : ""
+      color: Model.usageColor(usage ? usage.percent : 0, palette)
+      font.family: fontFamily
+      font.pixelSize: Style.font.caption
     }
   }
 

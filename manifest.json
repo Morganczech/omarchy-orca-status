@@ -46,6 +46,13 @@
         "label": "Show when idle",
         "description": "Keep the bar icon visible even when no agents are active.",
         "defaultValue": false
+      },
+      {
+        "key": "keepOpen",
+        "type": "boolean",
+        "label": "Keep open",
+        "description": "Leave the panel open when clicking another window.",
+        "defaultValue": false
       }
     ]
   }

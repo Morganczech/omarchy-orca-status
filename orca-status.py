@@ -7,6 +7,7 @@ Produces a single normalized JSON document on stdout. Commands:
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -96,6 +97,48 @@ def unwrap_result(payload):
     return payload
 
 
+USAGE_LINE = re.compile(
+    r"(?P<model>.+?)\s+[·•|]\s+(?P<percent>\d+(?:\.\d+)?)%\s+[·•|]\s+(?P<files>\d+)\s+files?\b"
+)
+MODEL_SUFFIX = re.compile(r"^(?P<name>.*?)(?:\s+\d+(?:\.\d+)?[kKmM])?(?:\s+(?:low|medium|high|xhigh|max))?$", re.IGNORECASE)
+
+
+def shorten_model(model):
+    cleaned = " ".join(str(model or "").split())
+    match = MODEL_SUFFIX.match(cleaned)
+    name = (match.group("name") if match else cleaned).strip()
+    return name or cleaned
+
+
+def parse_usage(text):
+    found = None
+    for line in str(text or "").splitlines():
+        match = USAGE_LINE.search(" ".join(line.split()))
+        if match:
+            found = match
+    if not found:
+        return None
+    percent = float(found.group("percent"))
+    model = shorten_model(found.group("model"))
+    rounded = int(round(percent))
+    return {
+        "model": model,
+        "percent": percent,
+        "files": int(found.group("files")),
+        "label": f"{model} · {rounded}%",
+    }
+
+
+def pick_usage(usages):
+    best = None
+    for usage in usages:
+        if not usage:
+            continue
+        if best is None or usage.get("percent", 0) > best.get("percent", 0):
+            best = usage
+    return best
+
+
 def truncate(text, limit=140):
     value = str(text or "").replace("\n", " ").strip()
     if len(value) <= limit:
@@ -164,6 +207,7 @@ def normalize_agent(agent, terminal=None):
         "interrupted": bool(agent.get("interrupted")),
         "terminalHandle": terminal.get("handle") or "",
         "terminalTitle": truncate(terminal.get("title"), 80),
+        "usage": None,
     }
 
 
@@ -190,39 +234,53 @@ def agent_from_terminal(terminal, worktree_status="inactive"):
         "interrupted": False,
         "terminalHandle": terminal.get("handle") or "",
         "terminalTitle": truncate(terminal.get("title"), 80),
+        "usage": parse_usage(terminal.get("preview")),
     }
+
+
+def assign_terminals(agents, terminals, worktree_status):
+    terminals = list(terminals or [])
+    status = str(worktree_status or "inactive").lower()
+    if not agents and terminals:
+        return [agent_from_terminal(terminal, status) for terminal in terminals]
+    for index, agent in enumerate(agents):
+        terminal = terminals[index] if index < len(terminals) else {}
+        if terminal:
+            agent["terminalHandle"] = terminal.get("handle") or agent.get("terminalHandle") or ""
+            agent["displayLabel"] = resolve_agent_label(
+                agent.get("agentType"),
+                terminal.get("title") or "",
+                terminal.get("agentIdentity") or "",
+            )
+            agent["terminalTitle"] = truncate(terminal.get("title"), 80)
+            agent["usage"] = parse_usage(terminal.get("preview")) or agent.get("usage")
+    for terminal in terminals[len(agents):]:
+        agents.append(agent_from_terminal(terminal, status))
+    if status == "working" and agents and agents[0].get("state") in ("done", "inactive"):
+        agents[0]["state"] = "working"
+    return agents
 
 
 def normalize_worktree(worktree, terminals_for_worktree):
     terminals = list(terminals_for_worktree or [])
     primary_terminal = terminals[0] if terminals else {}
     agents = [
-        normalize_agent(agent, primary_terminal)
+        normalize_agent(agent, {})
         for agent in worktree.get("agents") or []
     ]
-    if not agents and terminals:
-        agents = [agent_from_terminal(primary_terminal, worktree.get("status"))]
-    elif agents and primary_terminal:
-        for agent in agents:
-            if not agent.get("displayLabel"):
-                agent["displayLabel"] = resolve_agent_label(
-                    agent.get("agentType"),
-                    primary_terminal.get("title") or "",
-                    primary_terminal.get("agentIdentity") or "",
-                )
-            if not agent.get("terminalHandle"):
-                agent["terminalHandle"] = primary_terminal.get("handle") or ""
+    agents = assign_terminals(agents, terminals, worktree.get("status"))
     agent_states = [agent["state"] for agent in agents]
-    if not agent_states and str(worktree.get("status") or "").lower() == "working":
-        agent_states = ["working"]
-    worktree_state = aggregate_agent_state(agent_states) if agent_states else (
-        "working" if str(worktree.get("status") or "").lower() == "working" else "inactive"
-    )
+    reported = str(worktree.get("status") or "inactive").lower()
+    if reported not in STATE_PRIORITY:
+        reported = "inactive"
+    worktree_state = aggregate_agent_state(agent_states) if agent_states else reported
+    if STATE_PRIORITY.get(reported, 0) > STATE_PRIORITY.get(worktree_state, 0):
+        worktree_state = reported
     worktree_id = worktree.get("worktreeId") or ""
     preview = truncate(worktree.get("preview"), 180)
-    prompt = ""
-    if agents:
-        prompt = agents[0].get("prompt") or agents[0].get("lastAssistantMessage") or ""
+    usage = pick_usage([agent.get("usage") for agent in agents]) or parse_usage(worktree.get("preview"))
+    if usage and agents and not any(agent.get("usage") for agent in agents):
+        agents[0]["usage"] = usage
     return {
         "worktreeId": worktree_id,
         "repoId": worktree.get("repoId") or "",
@@ -236,7 +294,8 @@ def normalize_worktree(worktree, terminals_for_worktree):
         "liveTerminalCount": int(worktree.get("liveTerminalCount") or 0),
         "isActive": bool(worktree.get("isActive")),
         "preview": preview,
-        "summary": prompt or preview,
+        "summary": "",
+        "usage": usage,
         "agents": agents,
         "terminalHandle": primary_terminal.get("handle") or "",
         "agentIdentity": primary_terminal.get("agentIdentity") or "",
@@ -261,8 +320,24 @@ def normalize_project(project, worktrees):
         "kind": project.get("kind") or "",
         "worktreeCount": len(matched),
         "activeWorktreeCount": active,
+        "workspaceStatus": project_workspace_status(matched),
         "worstState": aggregate_agent_state([wt.get("state") for wt in matched]) if matched else "inactive",
     }
+
+
+def project_workspace_status(worktrees):
+    rank = {"in-progress": 4, "in-review": 3, "todo": 2, "completed": 1, "done": 1}
+    best = ""
+    best_rank = -1
+    for worktree in worktrees:
+        status = str(worktree.get("workspaceStatus") or "").lower()
+        if status == "done":
+            status = "completed"
+        score = rank.get(status, 0)
+        if score > best_rank:
+            best = status
+            best_rank = score
+    return best or "todo"
 
 
 def normalize_terminal(terminal):
@@ -298,10 +373,15 @@ def summarize(worktrees):
             worktree_counts["inactive"] += 1
         else:
             worktree_counts[state] += 1
+        counted = False
         for agent in worktree.get("agents") or []:
             agent_state = agent.get("state") or "done"
             if agent_state in agent_counts:
                 agent_counts[agent_state] += 1
+                if agent_state == state and state in ("blocked", "waiting", "working"):
+                    counted = True
+        if state in ("blocked", "waiting", "working") and not counted:
+            agent_counts[state] += 1
     all_states = [wt.get("state") for wt in worktrees]
     for worktree in worktrees:
         for agent in worktree.get("agents") or []:
@@ -411,7 +491,21 @@ def switch_terminal(cli_path, handle):
     result = run_orca(orca_bin, "terminal", "switch", "--terminal", handle, "--json")
     if not result.get("ok"):
         return {"ok": False, "error": result.get("error") or "Unable to switch terminal."}
+    focus_orca_window()
     return {"ok": True}
+
+
+def focus_orca_window():
+    try:
+        subprocess.run(
+            ["hyprctl", "dispatch", 'hl.dsp.focus({ window = "class:^(orca)$" })'],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return
 
 
 def flag_value(argv, name):
