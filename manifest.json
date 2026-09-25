@@ -20,7 +20,7 @@
     "defaults": {
       "refreshIntervalSec": 12,
       "orcaCliPath": "",
-      "showWhenIdle": false
+      "showWhenIdle": true
     },
     "schema": [
       {

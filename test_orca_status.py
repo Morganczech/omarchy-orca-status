@@ -9,10 +9,11 @@ orca_status = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(orca_status)
 
 aggregate_agent_state = orca_status.aggregate_agent_state
-build_terminal_map = orca_status.build_terminal_map
+build_terminal_groups = orca_status.build_terminal_groups
 headline = orca_status.headline
 normalize_agent = orca_status.normalize_agent
 normalize_worktree = orca_status.normalize_worktree
+resolve_agent_label = orca_status.resolve_agent_label
 summarize = orca_status.summarize
 
 
@@ -48,18 +49,30 @@ class OrcaStatusTests(unittest.TestCase):
             "status": "working",
             "agents": [{"state": "working", "agentType": "cursor", "prompt": "hello"}],
         }
-        terminals = {"repo::/tmp/project": {"handle": "term_123", "agentIdentity": "cursor"}}
+        terminals = [{
+            "handle": "term_123",
+            "agentIdentity": "cursor",
+            "title": "⠋ Cursor Agent",
+            "lastOutputAt": 20,
+        }]
         normalized = normalize_worktree(worktree, terminals)
         self.assertEqual(normalized["terminalHandle"], "term_123")
         self.assertEqual(normalized["state"], "working")
-        self.assertEqual(normalized["agents"][0]["agentType"], "cursor")
+        self.assertEqual(normalized["agents"][0]["displayLabel"], "cursor-agent")
 
-    def test_build_terminal_map_prefers_latest_output(self):
-        terminals = build_terminal_map([
+    def test_build_terminal_groups_prefers_latest_output(self):
+        terminals = build_terminal_groups([
             {"worktreeId": "a", "handle": "term_old", "lastOutputAt": 10},
             {"worktreeId": "a", "handle": "term_new", "lastOutputAt": 20},
         ])
-        self.assertEqual(terminals["a"]["handle"], "term_new")
+        self.assertEqual(terminals["a"][0]["handle"], "term_new")
+
+    def test_resolve_agent_label_cursor_agent(self):
+        self.assertEqual(
+            resolve_agent_label("cursor", "⠋ Cursor Agent", "cursor"),
+            "cursor-agent",
+        )
+        self.assertEqual(resolve_agent_label("codex", "Codex", "codex"), "codex")
 
     def test_headline_priority(self):
         self.assertEqual(headline({"blocked": 2, "waiting": 1, "working": 3}), "2 blocked")

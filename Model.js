@@ -52,15 +52,24 @@ function stateLabel(state) {
   }
 }
 
-function agentGlyph(agentType) {
-  switch (String(agentType || "").toLowerCase()) {
-    case "cursor": return "󰆍"
+function agentGlyph(agentType, displayLabel) {
+  var key = String(displayLabel || agentType || "").toLowerCase()
+  if (key.indexOf("cursor") >= 0) return "󰆍"
+  switch (key) {
     case "codex": return "󰚩"
-    case "claude": return "󰭹"
+    case "claude":
+    case "claude-code": return "󰭹"
     case "omp": return "󰚩"
     case "hermes": return "󰚩"
     default: return "󰚩"
   }
+}
+
+function agentLabel(agent) {
+  if (!agent) return "agent"
+  if (agent.displayLabel) return agent.displayLabel
+  if (agent.displayName) return agent.displayName
+  return agent.agentType || "agent"
 }
 
 function headline(data) {
@@ -87,9 +96,14 @@ function shouldShowBar(data, showWhenIdle) {
   if (data.offline) return true
   if (showWhenIdle) return true
   if (!data.summary) return false
-  return data.summary.blocked > 0
-    || data.summary.waiting > 0
-    || data.summary.working > 0
+  if (data.summary.blocked > 0 || data.summary.waiting > 0 || data.summary.working > 0) return true
+  if (data.worktrees && data.worktrees.length > 0) {
+    for (var i = 0; i < data.worktrees.length; i++) {
+      var wt = data.worktrees[i]
+      if (wt.liveTerminalCount > 0 || wt.state === "working" || wt.state === "waiting" || wt.state === "blocked") return true
+    }
+  }
+  return false
 }
 
 function semaphoreColor(semaphore, palette) {

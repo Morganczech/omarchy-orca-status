@@ -42,10 +42,23 @@ Panel {
   readonly property string orcaCliPath: String(setting("orcaCliPath", "") || "")
   readonly property string script: Qt.resolvedUrl("orca-status.py").toString().replace("file://", "")
   readonly property var palette: ({ urgent: urgent, warning: warning, success: success, dim: dim })
-  readonly property bool hasBlocked: data.summary ? data.summary.blocked > 0 : false
-  readonly property bool hasWaiting: data.summary ? data.summary.waiting > 0 : false
-  readonly property bool hasWorking: data.summary ? data.summary.working > 0 : false
-  readonly property bool barVisible: Model.shouldShowBar({ loaded: loaded, offline: offline, summary: data.summary }, showWhenIdle)
+  property int summaryBlocked: 0
+  property int summaryWaiting: 0
+  property int summaryWorking: 0
+
+  readonly property bool hasBlocked: summaryBlocked > 0
+  readonly property bool hasWaiting: summaryWaiting > 0
+  readonly property bool hasWorking: summaryWorking > 0
+  readonly property bool hasLiveActivity: hasBlocked || hasWaiting || hasWorking
+  readonly property color statusColor: offline
+    ? dim
+    : (hasBlocked ? urgent : (hasWaiting ? warning : (hasWorking ? success : dim)))
+  readonly property bool barVisible: Model.shouldShowBar({
+    loaded: loaded,
+    offline: offline,
+    summary: { blocked: summaryBlocked, waiting: summaryWaiting, working: summaryWorking },
+    worktrees: worktrees
+  }, showWhenIdle)
 
   function refresh() {
     if (!fetchProc.running) fetchProc.running = true
@@ -73,6 +86,9 @@ Panel {
     worktrees = result.worktrees || []
     projects = result.projects || []
     semaphore = result.semaphore || "gray"
+    summaryBlocked = result.summary ? (result.summary.blocked || 0) : 0
+    summaryWaiting = result.summary ? (result.summary.waiting || 0) : 0
+    summaryWorking = result.summary ? (result.summary.working || 0) : 0
     clampCursor()
   }
 
@@ -234,18 +250,19 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  Row {
+  Item {
     id: buttonRow
-    anchors.fill: parent
-    spacing: Style.space(4)
+    implicitWidth: button.implicitWidth + Style.space(4)
+    implicitHeight: button.implicitHeight
 
     WidgetButton {
       id: button
+      anchors.centerIn: parent
       bar: root.bar
       text: "󰚩"
       tooltipText: Model.barTooltip(data)
-      useActiveColor: hasBlocked
-      active: hasBlocked
+      useActiveColor: hasLiveActivity
+      active: hasBlocked || hasWaiting || hasWorking
       horizontalMargin: 8.5
       onPressed: function(code) {
         if (code === Qt.RightButton) root.refresh()
@@ -254,12 +271,17 @@ Panel {
     }
 
     Rectangle {
-      visible: !offline && (hasBlocked || hasWaiting || hasWorking)
-      width: Style.space(6)
-      height: Style.space(6)
-      radius: width / 2
-      anchors.verticalCenter: parent.verticalCenter
-      color: Model.semaphoreColor(semaphore, palette)
+      visible: loaded && !offline
+      width: 10
+      height: 10
+      radius: 5
+      anchors.right: button.right
+      anchors.top: button.top
+      anchors.rightMargin: 2
+      anchors.topMargin: 1
+      color: root.statusColor
+      border.width: 1
+      border.color: bar ? bar.background : Qt.darker(foreground, 1.2)
     }
   }
 
@@ -640,7 +662,7 @@ Panel {
 
               Text {
                 textFormat: Text.PlainText
-                text: Model.agentGlyph(modelData.agentType)
+                text: Model.agentGlyph(modelData.agentType, modelData.displayLabel)
                 color: foreground
                 font.family: fontFamily
                 font.pixelSize: Style.font.body
@@ -652,7 +674,7 @@ Panel {
 
                 Text {
                   textFormat: Text.PlainText
-                  text: (modelData.agentType || "agent") + (modelData.toolName ? " · " + modelData.toolName : "")
+                  text: Model.agentLabel(modelData) + (modelData.toolName ? " · " + modelData.toolName : "")
                   color: foreground
                   font.family: fontFamily
                   font.pixelSize: Style.font.caption

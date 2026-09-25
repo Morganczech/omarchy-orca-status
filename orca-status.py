@@ -114,25 +114,104 @@ def aggregate_agent_state(states):
     return best
 
 
-def normalize_agent(agent):
+def resolve_agent_label(agent_type="", terminal_title="", agent_identity=""):
+    title = str(terminal_title or "").lower()
+    identity = str(agent_identity or agent_type or "").lower()
+    agent = str(agent_type or "").lower()
+    if "cursor" in title or identity == "cursor" or agent == "cursor":
+        if "agent" in title or "cursor-agent" in title or "cursor agent" in title:
+            return "cursor-agent"
+        return "cursor"
+    labels = {
+        "codex": "codex",
+        "claude": "claude-code",
+        "omp": "omp",
+        "hermes": "hermes",
+        "pi": "pi",
+        "fireworks": "fireworks",
+    }
+    if identity in labels:
+        return labels[identity]
+    if agent in labels:
+        return labels[agent]
+    cleaned_title = str(terminal_title or "").strip()
+    if cleaned_title:
+        return truncate(cleaned_title, 40)
+    return identity or agent or "agent"
+
+
+def normalize_agent(agent, terminal=None):
+    terminal = terminal or {}
     state = str(agent.get("state") or "done").lower()
     if state not in STATE_PRIORITY:
         state = "done"
+    agent_type = agent.get("agentType") or terminal.get("agentIdentity") or "unknown"
+    display_label = resolve_agent_label(
+        agent_type,
+        terminal.get("title") or "",
+        terminal.get("agentIdentity") or "",
+    )
     return {
         "paneKey": agent.get("paneKey") or "",
         "state": state,
-        "agentType": agent.get("agentType") or "unknown",
+        "agentType": agent_type,
+        "displayLabel": display_label,
         "prompt": truncate(agent.get("prompt")),
         "taskTitle": truncate(agent.get("taskTitle")),
-        "displayName": truncate(agent.get("displayName")),
+        "displayName": truncate(agent.get("displayName")) or display_label,
         "toolName": agent.get("toolName") or "",
         "lastAssistantMessage": truncate(agent.get("lastAssistantMessage"), 200),
         "interrupted": bool(agent.get("interrupted")),
+        "terminalHandle": terminal.get("handle") or "",
+        "terminalTitle": truncate(terminal.get("title"), 80),
     }
 
 
-def normalize_worktree(worktree, terminal_by_worktree):
-    agents = [normalize_agent(agent) for agent in worktree.get("agents") or []]
+def agent_from_terminal(terminal, worktree_status="inactive"):
+    state = "working" if str(worktree_status).lower() == "working" else "inactive"
+    if state == "inactive":
+        state = "done"
+    agent_type = terminal.get("agentIdentity") or "unknown"
+    display_label = resolve_agent_label(
+        agent_type,
+        terminal.get("title") or "",
+        terminal.get("agentIdentity") or "",
+    )
+    return {
+        "paneKey": "",
+        "state": state,
+        "agentType": agent_type,
+        "displayLabel": display_label,
+        "prompt": truncate(terminal.get("preview")),
+        "taskTitle": "",
+        "displayName": display_label,
+        "toolName": "",
+        "lastAssistantMessage": "",
+        "interrupted": False,
+        "terminalHandle": terminal.get("handle") or "",
+        "terminalTitle": truncate(terminal.get("title"), 80),
+    }
+
+
+def normalize_worktree(worktree, terminals_for_worktree):
+    terminals = list(terminals_for_worktree or [])
+    primary_terminal = terminals[0] if terminals else {}
+    agents = [
+        normalize_agent(agent, primary_terminal)
+        for agent in worktree.get("agents") or []
+    ]
+    if not agents and terminals:
+        agents = [agent_from_terminal(primary_terminal, worktree.get("status"))]
+    elif agents and primary_terminal:
+        for agent in agents:
+            if not agent.get("displayLabel"):
+                agent["displayLabel"] = resolve_agent_label(
+                    agent.get("agentType"),
+                    primary_terminal.get("title") or "",
+                    primary_terminal.get("agentIdentity") or "",
+                )
+            if not agent.get("terminalHandle"):
+                agent["terminalHandle"] = primary_terminal.get("handle") or ""
     agent_states = [agent["state"] for agent in agents]
     if not agent_states and str(worktree.get("status") or "").lower() == "working":
         agent_states = ["working"]
@@ -140,7 +219,6 @@ def normalize_worktree(worktree, terminal_by_worktree):
         "working" if str(worktree.get("status") or "").lower() == "working" else "inactive"
     )
     worktree_id = worktree.get("worktreeId") or ""
-    terminal = terminal_by_worktree.get(worktree_id) or {}
     preview = truncate(worktree.get("preview"), 180)
     prompt = ""
     if agents:
@@ -160,8 +238,9 @@ def normalize_worktree(worktree, terminal_by_worktree):
         "preview": preview,
         "summary": prompt or preview,
         "agents": agents,
-        "terminalHandle": terminal.get("handle") or "",
-        "agentIdentity": terminal.get("agentIdentity") or "",
+        "terminalHandle": primary_terminal.get("handle") or "",
+        "agentIdentity": primary_terminal.get("agentIdentity") or "",
+        "terminalTitle": truncate(primary_terminal.get("title"), 80),
     }
 
 
@@ -186,21 +265,28 @@ def normalize_project(project, worktrees):
     }
 
 
-def build_terminal_map(terminals):
-    by_worktree = {}
+def normalize_terminal(terminal):
+    return {
+        "handle": terminal.get("handle") or "",
+        "agentIdentity": terminal.get("agentIdentity") or "",
+        "title": terminal.get("title") or "",
+        "preview": terminal.get("preview") or "",
+        "lastOutputAt": int(terminal.get("lastOutputAt") or 0),
+        "worktreeId": terminal.get("worktreeId") or "",
+    }
+
+
+def build_terminal_groups(terminals):
+    groups = {}
     for terminal in terminals or []:
-        worktree_id = terminal.get("worktreeId") or ""
+        normalized = normalize_terminal(terminal)
+        worktree_id = normalized["worktreeId"]
         if not worktree_id:
             continue
-        current = by_worktree.get(worktree_id)
-        candidate = {
-            "handle": terminal.get("handle") or "",
-            "agentIdentity": terminal.get("agentIdentity") or "",
-            "lastOutputAt": int(terminal.get("lastOutputAt") or 0),
-        }
-        if not current or candidate["lastOutputAt"] >= current["lastOutputAt"]:
-            by_worktree[worktree_id] = candidate
-    return by_worktree
+        groups.setdefault(worktree_id, []).append(normalized)
+    for worktree_id in groups:
+        groups[worktree_id].sort(key=lambda item: item["lastOutputAt"], reverse=True)
+    return groups
 
 
 def summarize(worktrees):
@@ -292,9 +378,12 @@ def fetch_status(cli_path=""):
     project_payload = unwrap_result(project_result["payload"]) if project_result.get("ok") else {}
     terminal_payload = unwrap_result(terminal_result["payload"]) if terminal_result.get("ok") else {}
 
-    terminal_by_worktree = build_terminal_map(terminal_payload.get("terminals") or [])
+    terminal_groups = build_terminal_groups(terminal_payload.get("terminals") or [])
     raw_worktrees = worktree_payload.get("worktrees") or []
-    worktrees = [normalize_worktree(item, terminal_by_worktree) for item in raw_worktrees]
+    worktrees = [
+        normalize_worktree(item, terminal_groups.get(item.get("worktreeId") or "", []))
+        for item in raw_worktrees
+    ]
     projects = [
         normalize_project(project, worktrees)
         for project in (project_payload.get("projects") or [])
