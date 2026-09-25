@@ -142,3 +142,28 @@ function switchResultText(result) {
   if (!result || !result.ok) return result && result.error ? result.error : "Unable to focus workspace."
   return "Focused in Orca."
 }
+
+function hasActiveWorktrees(worktrees) {
+  for (var i = 0; i < worktrees.length; i++) {
+    var wt = worktrees[i]
+    if (!wt) continue
+    if (wt.state === "working" || wt.state === "waiting" || wt.state === "blocked") return true
+    if (wt.liveTerminalCount > 0) return true
+  }
+  return false
+}
+
+function primaryAgentLabel(worktrees) {
+  for (var i = 0; i < worktrees.length; i++) {
+    var agents = worktrees[i].agents || []
+    for (var j = 0; j < agents.length; j++) {
+      if (agents[j].displayLabel) return agents[j].displayLabel
+      if (agents[j].agentType) return agents[j].agentType
+    }
+  }
+  return ""
+}
+
+function barIconForWorktrees(worktrees) {
+  return agentGlyph("", primaryAgentLabel(worktrees))
+}

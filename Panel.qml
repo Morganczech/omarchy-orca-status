@@ -48,8 +48,9 @@ Panel {
 
   readonly property bool hasBlocked: summaryBlocked > 0
   readonly property bool hasWaiting: summaryWaiting > 0
-  readonly property bool hasWorking: summaryWorking > 0
+  readonly property bool hasWorking: summaryWorking > 0 || Model.hasActiveWorktrees(worktrees)
   readonly property bool hasLiveActivity: hasBlocked || hasWaiting || hasWorking
+  readonly property string barIcon: Model.barIconForWorktrees(worktrees)
   readonly property color statusColor: offline
     ? dim
     : (hasBlocked ? urgent : (hasWaiting ? warning : (hasWorking ? success : dim)))
@@ -78,6 +79,9 @@ Panel {
       worktrees = []
       projects = []
       semaphore = "gray"
+      summaryBlocked = 0
+      summaryWaiting = 0
+      summaryWorking = 0
       if (result.error) setStatus(result.error, true)
       return
     }
@@ -187,11 +191,9 @@ Panel {
 
   Process {
     id: fetchProc
-    command: {
-      var argv = ["python3", root.script]
-      if (root.orcaCliPath !== "") argv = argv.concat(["--cli", root.orcaCliPath])
-      return argv
-    }
+    command: root.orcaCliPath !== ""
+      ? ["python3", root.script, "--cli", root.orcaCliPath]
+      : ["python3", root.script]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyPayload(Model.parseResult(text))
@@ -237,8 +239,8 @@ Panel {
   }
 
   visible: barVisible
-  implicitWidth: buttonRow.implicitWidth
-  implicitHeight: buttonRow.implicitHeight
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
 
   onOpenedChanged: if (opened) {
     cursorActive = false
@@ -250,39 +252,36 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  Item {
-    id: buttonRow
-    implicitWidth: button.implicitWidth + Style.space(4)
-    implicitHeight: button.implicitHeight
-
-    WidgetButton {
-      id: button
-      anchors.centerIn: parent
-      bar: root.bar
-      text: "󰚩"
-      tooltipText: Model.barTooltip(data)
-      useActiveColor: hasLiveActivity
-      active: hasBlocked || hasWaiting || hasWorking
-      horizontalMargin: 8.5
-      onPressed: function(code) {
-        if (code === Qt.RightButton) root.refresh()
-        else root.toggle()
-      }
+  WidgetButton {
+    id: button
+    anchors.left: parent.left
+    anchors.top: parent.top
+    anchors.bottom: parent.bottom
+    bar: root.bar
+    text: root.barIcon
+    tooltipText: Model.barTooltip(data)
+    useActiveColor: hasLiveActivity
+    active: hasLiveActivity
+    activeColor: root.statusColor
+    horizontalMargin: 8.5
+    onPressed: function(code) {
+      if (code === Qt.RightButton) root.refresh()
+      else root.toggle()
     }
+  }
 
-    Rectangle {
-      visible: loaded && !offline
-      width: 10
-      height: 10
-      radius: 5
-      anchors.right: button.right
-      anchors.top: button.top
-      anchors.rightMargin: 2
-      anchors.topMargin: 1
-      color: root.statusColor
-      border.width: 1
-      border.color: bar ? bar.background : Qt.darker(foreground, 1.2)
-    }
+  Rectangle {
+    id: statusDot
+    visible: hasLiveActivity
+    z: 10
+    anchors.right: button.right
+    anchors.rightMargin: Style.space(3)
+    anchors.top: button.top
+    anchors.topMargin: Style.space(5)
+    width: Style.space(8)
+    height: width
+    radius: width / 2
+    color: hasBlocked ? urgent : (hasWaiting ? warning : success)
   }
 
   KeyboardPanel {
