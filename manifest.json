@@ -53,6 +53,20 @@
         "label": "Keep open",
         "description": "Leave the panel open when clicking another window.",
         "defaultValue": false
+      },
+      {
+        "key": "notifyOnBlocked",
+        "type": "boolean",
+        "label": "Notify when blocked",
+        "description": "Send a desktop notification when a workspace becomes blocked.",
+        "defaultValue": true
+      },
+      {
+        "key": "notifyOnWaiting",
+        "type": "boolean",
+        "label": "Notify when waiting",
+        "description": "Send a desktop notification when a workspace starts waiting for input.",
+        "defaultValue": false
       }
     ]
   }

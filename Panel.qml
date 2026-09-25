@@ -147,7 +147,38 @@ Panel {
     summaryBlocked = result.summary ? (result.summary.blocked || 0) : 0
     summaryWaiting = result.summary ? (result.summary.waiting || 0) : 0
     summaryWorking = result.summary ? (result.summary.working || 0) : 0
+    notifyStateChanges(worktrees)
     clampCursor()
+  }
+
+  // Desktop notifications on state transitions. Keyed by worktreeId so a
+  // notification fires only when a workspace newly enters the state, not on
+  // every refresh.
+  readonly property bool notifyOnBlocked: setting("notifyOnBlocked", true) === true
+  readonly property bool notifyOnWaiting: setting("notifyOnWaiting", false) === true
+  property var lastNotifiedStates: ({})
+  property bool statesPrimed: false
+
+  function notifyStateChanges(rows) {
+    var previous = lastNotifiedStates
+    var current = {}
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i]
+      if (!row || !row.worktreeId) continue
+      var state = String(row.state || "").toLowerCase()
+      current[row.worktreeId] = state
+      if (!statesPrimed) continue
+      if (previous[row.worktreeId] === state) continue
+      var wants = (state === "blocked" && notifyOnBlocked)
+        || (state === "waiting" && notifyOnWaiting)
+      if (!wants) continue
+      var title = "Orca: " + Model.stateLabel(state)
+      var urgency = state === "blocked" ? "critical" : "normal"
+      Quickshell.execDetached(["notify-send", "--app-name", "Orca Status",
+        "--urgency", urgency, title, Model.rowTitle(row)])
+    }
+    lastNotifiedStates = current
+    statesPrimed = true
   }
 
   function moveCursor(delta) {
