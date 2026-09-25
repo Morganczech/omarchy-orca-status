@@ -38,7 +38,7 @@ Panel {
   readonly property var rows: Model.filteredWorktrees(worktrees, filterText)
   readonly property var currentRow: cursorIndex >= 0 && cursorIndex < rows.length ? rows[cursorIndex] : null
   readonly property int refreshIntervalSec: Math.max(3, setting("refreshIntervalSec", 12))
-  readonly property bool showWhenIdle: setting("showWhenIdle", false) === true
+  readonly property bool showWhenIdle: setting("showWhenIdle", true) !== false
   readonly property string orcaCliPath: String(setting("orcaCliPath", "") || "")
   readonly property string script: Qt.resolvedUrl("orca-status.py").toString().replace("file://", "")
   readonly property var palette: ({ urgent: urgent, warning: warning, success: success, dim: dim })
@@ -241,7 +241,7 @@ Panel {
     function refresh(): string { root.refresh(); return "ok" }
   }
 
-  visible: barVisible
+  visible: true
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -255,14 +255,14 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  BarIconButton {
+  WidgetButton {
     id: button
     anchors.left: parent.left
     anchors.top: parent.top
     anchors.bottom: parent.bottom
     bar: root.bar
-    text: root.barIcon
-    tooltipText: Model.barTooltip(data)
+    text: root.barIcon !== "" ? root.barIcon : "\uDB81\uDC8D"
+    tooltipText: loaded ? Model.barTooltip(data) : "Orca Status"
     useActiveColor: false
     active: false
     foreground: root.iconColor
