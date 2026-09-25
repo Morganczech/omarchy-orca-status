@@ -31,13 +31,28 @@ function worktreeHasPresence(row) {
   return false
 }
 
+function stateUrgency(state) {
+  switch (String(state || "").toLowerCase()) {
+    case "blocked": return 0
+    case "waiting": return 1
+    case "working": return 2
+    default: return 3
+  }
+}
+
 function filteredWorktrees(worktrees, query) {
   var out = []
   for (var i = 0; i < worktrees.length; i++) {
     if (!worktreeHasPresence(worktrees[i])) continue
     if (matches(worktrees[i], query)) out.push(worktrees[i])
   }
-  return out
+  // Urgent states first; stable within the same urgency (original CLI order).
+  var indexed = out.map(function(row, index) { return { row: row, index: index } })
+  indexed.sort(function(a, b) {
+    var delta = stateUrgency(a.row.state) - stateUrgency(b.row.state)
+    return delta !== 0 ? delta : a.index - b.index
+  })
+  return indexed.map(function(entry) { return entry.row })
 }
 
 function workspaceStatusColor(status) {

@@ -45,16 +45,24 @@ Panel {
   readonly property string script: Qt.resolvedUrl("orca-status.py").toString().replace("file://", "")
   property bool pinned: false
 
-  Component.onCompleted: pinned = setting("keepOpen", false) === true
+  Component.onCompleted: {
+    pinned = setting("keepOpen", false) === true
+    var savedHeight = Number(setting("panelHeight", 0))
+    if (savedHeight > 0) userPanelHeight = savedHeight
+  }
 
-  function setKeepOpen(value) {
-    pinned = value === true
+  function saveSetting(name, value) {
     var entry = { id: moduleName }
     for (var existing in settings) if (existing !== "id") entry[existing] = settings[existing]
-    entry.keepOpen = pinned
+    entry[name] = value
     settings = entry
     if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
       bar.shell.updateEntryInline(moduleName, entry)
+  }
+
+  function setKeepOpen(value) {
+    pinned = value === true
+    saveSetting("keepOpen", pinned)
     placePanelBody()
     if (!pinned) forceClose()
   }
@@ -321,6 +329,34 @@ Panel {
     onPressed: function(code) {
       if (code === Qt.RightButton) root.refresh()
       else root.toggle()
+    }
+  }
+
+  // Count badge: number of agents that need attention (blocked + waiting).
+  Rectangle {
+    id: attentionBadge
+    readonly property int count: root.summaryBlocked + root.summaryWaiting
+    visible: count > 0
+    z: 100
+    anchors.right: button.right
+    anchors.top: button.top
+    anchors.topMargin: Style.space(2)
+    width: Math.max(height, badgeText.implicitWidth + Style.space(4))
+    height: Style.space(11)
+    radius: height / 2
+    color: root.summaryBlocked > 0 ? root.urgent : root.warning
+    border.width: 1
+    border.color: Color.background
+
+    Text {
+      id: badgeText
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: attentionBadge.count > 9 ? "9+" : String(attentionBadge.count)
+      color: Color.background
+      font.family: root.fontFamily
+      font.pixelSize: Style.space(8)
+      font.bold: true
     }
   }
 
@@ -606,6 +642,7 @@ Panel {
           var maxHeight = panel.availableCardHeight > 0 ? panel.availableCardHeight : Style.space(900)
           root.userPanelHeight = Math.max(Style.space(240), Math.min(maxHeight, originHeight + dy))
         }
+        onReleased: if (root.userPanelHeight > 0) root.saveSetting("panelHeight", Math.round(root.userPanelHeight))
 
         Rectangle {
           anchors.horizontalCenter: parent.horizontalCenter
@@ -838,10 +875,10 @@ Panel {
 
       UsageMeter {
         width: parent.width
-        usage: worktree.usage
-        palette: palette
-        foreground: foreground
-        fontFamily: fontFamily
+        usage: worktreeRow.worktree.usage
+        palette: worktreeRow.palette
+        foreground: worktreeRow.foreground
+        fontFamily: worktreeRow.fontFamily
       }
 
       Column {
@@ -886,11 +923,11 @@ Panel {
 
                 UsageMeter {
                   Layout.fillWidth: true
-                  visible: modelData.usage && !Model.sameUsage(modelData.usage, worktree.usage)
+                  visible: modelData.usage && !Model.sameUsage(modelData.usage, worktreeRow.worktree.usage)
                   usage: modelData.usage
-                  palette: palette
-                  foreground: foreground
-                  fontFamily: fontFamily
+                  palette: worktreeRow.palette
+                  foreground: worktreeRow.foreground
+                  fontFamily: worktreeRow.fontFamily
                 }
 
                 Text {
