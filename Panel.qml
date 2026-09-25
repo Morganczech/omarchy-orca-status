@@ -31,7 +31,7 @@ Panel {
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property color accent: Color.accent
   readonly property color dim: Qt.darker(foreground, 1.55)
-  readonly property color success: Qt.rgba(0.65, 0.89, 0.63, 1)
+  readonly property color success: Color.accent
   readonly property color warning: Qt.rgba(0.98, 0.70, 0.53, 1)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
@@ -48,12 +48,15 @@ Panel {
 
   readonly property bool hasBlocked: summaryBlocked > 0
   readonly property bool hasWaiting: summaryWaiting > 0
-  readonly property bool hasWorking: summaryWorking > 0 || Model.hasActiveWorktrees(worktrees)
+  readonly property bool hasWorking: summaryWorking > 0 || Model.hasActiveWorktrees(worktrees) || semaphore === "green"
   readonly property bool hasLiveActivity: hasBlocked || hasWaiting || hasWorking
   readonly property string barIcon: Model.barIconForWorktrees(worktrees)
   readonly property color statusColor: offline
     ? dim
     : (hasBlocked ? urgent : (hasWaiting ? warning : (hasWorking ? success : dim)))
+  readonly property color iconColor: offline
+    ? dim
+    : (hasBlocked ? urgent : (hasWaiting ? warning : (hasWorking ? success : foreground)))
   readonly property bool barVisible: Model.shouldShowBar({
     loaded: loaded,
     offline: offline,
@@ -252,7 +255,7 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  WidgetButton {
+  BarIconButton {
     id: button
     anchors.left: parent.left
     anchors.top: parent.top
@@ -260,9 +263,9 @@ Panel {
     bar: root.bar
     text: root.barIcon
     tooltipText: Model.barTooltip(data)
-    useActiveColor: hasLiveActivity
-    active: hasLiveActivity
-    activeColor: root.statusColor
+    useActiveColor: false
+    active: false
+    foreground: root.iconColor
     horizontalMargin: 8.5
     onPressed: function(code) {
       if (code === Qt.RightButton) root.refresh()
@@ -273,15 +276,17 @@ Panel {
   Rectangle {
     id: statusDot
     visible: hasLiveActivity
-    z: 10
+    z: 100
     anchors.right: button.right
-    anchors.rightMargin: Style.space(3)
+    anchors.rightMargin: Style.space(2)
     anchors.top: button.top
-    anchors.topMargin: Style.space(5)
-    width: Style.space(8)
+    anchors.topMargin: Style.space(4)
+    width: Style.space(9)
     height: width
     radius: width / 2
-    color: hasBlocked ? urgent : (hasWaiting ? warning : success)
+    color: root.iconColor
+    border.width: 2
+    border.color: Color.background
   }
 
   KeyboardPanel {
