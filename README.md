@@ -7,9 +7,14 @@ Traffic-light status for [Orca](https://orca.dev) agents in the Omarchy bar, wit
 - **Bar semaphore** — green (working), yellow (waiting), red (blocked) without opening the panel
 - **Projects** — durable Orca projects with active workspace counts
 - **Workspaces** — worktrees with agent state, preview text, and expandable agent details
-- **Actions** — focus a workspace in Orca (`orca terminal switch`) or open its path
+- **Actions** — focus a workspace in Orca (`orca terminal switch`), open its path, or open its changed files as diffs in Orca (`orca file open-changed`)
+- **Agent output preview** — expanding a workspace shows the last lines of each agent's terminal, so you can see what an agent is asking without switching to Orca
+- **Notifications** — desktop notification when a workspace becomes blocked (and optionally waiting)
+- **Attention badge** — count of blocked + waiting agents next to the bar icon
+- **Urgency sorting** — blocked workspaces first, then waiting, then working
 - **Pin (keep open)** — pin the panel as a card in the top-right corner; it stays open while you work in other windows and never steals keyboard or mouse input. Unpin closes it.
-- **Resizable panel** — drag the grip at the bottom edge to change the panel height
+- **Resizable panel** — drag the grip at the bottom edge to change the panel height (persisted)
+- **Start Orca** — a button to launch Orca directly from the panel when it is offline
 
 ## Requirements
 
@@ -42,6 +47,9 @@ In `~/.config/omarchy/shell.json` under the widget entry:
 | `orcaCliPath` | `""` | Custom path to `orca` binary |
 | `showWhenIdle` | `true` | Keep bar icon visible when no agents are active |
 | `keepOpen` | `false` | Pin the panel so it stays open when clicking another window (also toggled by the pin button in the panel) |
+| `notifyOnBlocked` | `true` | Desktop notification when a workspace becomes blocked |
+| `notifyOnWaiting` | `false` | Desktop notification when a workspace starts waiting for input |
+| `panelHeight` | — | Panel height in pixels, saved automatically when you drag the resize grip |
 
 ## Keyboard shortcuts
 
@@ -51,6 +59,7 @@ In `~/.config/omarchy/shell.json` under the widget entry:
 | `Enter` | Expand agents or focus workspace in Orca |
 | `f` | Focus workspace in Orca |
 | `o` | Open workspace path |
+| `d` | Open changed files in Orca |
 | `e` | Toggle agent details |
 | `/` | Filter workspaces |
 | `r` | Refresh |
@@ -60,6 +69,8 @@ In `~/.config/omarchy/shell.json` under the widget entry:
 
 - Opening the panel shows a card below the bar icon; clicking anywhere outside it closes it.
 - The pin button (or the `keepOpen` setting) keeps the card open in the top-right corner. While pinned, keyboard and mouse input outside the card go to your other windows as usual; unpinning closes the card.
+- Clicking a project chip filters the workspace list to that project; clicking it again clears the filter.
+- Expanding a workspace loads a short terminal preview for each of its agents; press `r` to refresh both the status and the previews.
 
 ## Development
 

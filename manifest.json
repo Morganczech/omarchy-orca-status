@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "gruut.orca-status",
   "name": "Orca Status",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "gruut",
   "license": "MIT",
   "description": "Orca projects and agent status in the Omarchy bar: a traffic-light glance at working, waiting, and blocked agents, with a panel for workspaces.",
