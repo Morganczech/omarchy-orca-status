@@ -45,7 +45,7 @@
         "type": "boolean",
         "label": "Show when idle",
         "description": "Keep the bar icon visible even when no agents are active.",
-        "defaultValue": false
+        "defaultValue": true
       },
       {
         "key": "keepOpen",

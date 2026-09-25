@@ -2,6 +2,8 @@
 
 Traffic-light status for [Orca](https://orca.dev) agents in the Omarchy bar, with a panel for projects and workspaces.
 
+![Orca Status panel](docs/panel.png)
+
 ## Features
 
 - **Bar semaphore** — green (working), yellow (waiting), red (blocked) without opening the panel
@@ -19,8 +21,18 @@ Traffic-light status for [Orca](https://orca.dev) agents in the Omarchy bar, wit
 ## Requirements
 
 - Omarchy with shell plugins
-- Orca IDE running locally with CLI on `PATH` (or at `~/.config/orca/linux-orca-cli-shim/orca`)
-- Python 3
+- Python 3 on `PATH` (`python3`)
+- Orca CLI on `PATH`, at `~/.config/orca/linux-orca-cli-shim/orca`, or set via `orcaCliPath`
+
+Optional tools used by specific actions:
+
+| Tool | Used for | If it is missing |
+|------|----------|------------------|
+| `notify-send` | Desktop notifications when a workspace becomes blocked or waiting | The notification is skipped. Status, the bar, and the panel keep working. `execDetached` does not report the failure. |
+| `xdg-open` | Open a workspace path (`o`) | The panel still says the path was opened. The file manager does not start, and the failure is not shown. |
+| `hyprctl` | Focus the Orca window after switching a terminal or opening changed files | The Orca command still runs. Focusing the window is skipped silently. |
+
+Orca itself is required for live data. The backend looks up the binary with `shutil.which("orca")`, then the default shim path. When nothing is executable it returns `offline: true` and `Orca CLI not found.` The bar stays visible (Orca offline still shows the icon) and the panel offers **Start Orca**, which fails with the same error until a CLI exists. If the binary exists but Orca is not running, `orca status` fails and the panel shows that error instead, still as offline. Focus, terminal preview, and open-changed then return `Orca CLI not found.` or the underlying CLI error in the panel status line.
 
 ## Install
 
