@@ -495,6 +495,27 @@ def switch_terminal(cli_path, handle):
     return {"ok": True}
 
 
+def read_terminal(cli_path, handle, limit=12):
+    orca_bin = find_orca(cli_path)
+    if not orca_bin:
+        return {"ok": False, "error": "Orca CLI not found."}
+    if not handle:
+        return {"ok": False, "error": "Missing terminal handle."}
+    result = run_orca(orca_bin, "terminal", "read", "--terminal", handle,
+                      "--screen", "--json")
+    if not result.get("ok"):
+        return {"ok": False, "error": result.get("error") or "Unable to read terminal."}
+    payload = unwrap_result(result.get("payload"))
+    terminal = payload.get("terminal") if isinstance(payload, dict) else None
+    tail = terminal.get("tail") if isinstance(terminal, dict) else None
+    lines = [str(line).rstrip() for line in tail] if isinstance(tail, list) else []
+    # Keep only the last non-empty stretch, bounded by limit.
+    while lines and lines[-1] == "":
+        lines.pop()
+    lines = lines[-max(1, int(limit)):]
+    return {"ok": True, "lines": lines}
+
+
 def open_changed(cli_path, path):
     orca_bin = find_orca(cli_path)
     if not orca_bin:
@@ -569,6 +590,13 @@ def main(argv):
         return switch_terminal(cli_path, flag_value(argv, "--terminal"))
     if command == "open-changed":
         return open_changed(cli_path, flag_value(argv, "--path"))
+    if command == "read":
+        limit = flag_value(argv, "--limit") or "12"
+        try:
+            limit = int(limit)
+        except ValueError:
+            limit = 12
+        return read_terminal(cli_path, flag_value(argv, "--terminal"), limit)
     if command == "launch":
         return launch_orca(cli_path)
     if command and command not in ("status", ""):

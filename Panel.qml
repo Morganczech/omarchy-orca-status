@@ -164,7 +164,47 @@ Panel {
 
   function toggleExpanded(row) {
     if (!row) return
-    expandedWorktreeId = expandedWorktreeId === row.worktreeId ? "" : row.worktreeId
+    var expanding = expandedWorktreeId !== row.worktreeId
+    expandedWorktreeId = expanding ? row.worktreeId : ""
+    if (expanding) requestPreviews(row)
+  }
+
+  // Terminal output previews: handle -> array of lines. Loaded lazily when a
+  // worktree row is expanded, refreshed together with the r shortcut.
+  property var terminalPreviews: ({})
+  property var previewQueue: []
+
+  function requestPreviews(row) {
+    if (!row || !row.agents) return
+    for (var i = 0; i < row.agents.length; i++) {
+      var handle = row.agents[i] ? row.agents[i].terminalHandle : ""
+      if (handle && previewQueue.indexOf(handle) < 0) previewQueue.push(handle)
+    }
+    pumpPreviewQueue()
+  }
+
+  function pumpPreviewQueue() {
+    if (previewProc.running || previewQueue.length === 0) return
+    var handle = previewQueue.shift()
+    previewQueue = previewQueue
+    previewProc.pendingHandle = handle
+    var argv = ["python3", root.script, "read", "--terminal", String(handle), "--limit", "8"]
+    if (orcaCliPath !== "") argv = argv.concat(["--cli", orcaCliPath])
+    previewProc.command = argv
+    previewProc.running = true
+  }
+
+  function previewFor(handle) {
+    if (!handle) return []
+    var lines = terminalPreviews[String(handle)]
+    return lines && lines.length ? lines : []
+  }
+
+  function expandedRow() {
+    if (expandedWorktreeId === "") return null
+    for (var i = 0; i < rows.length; i++)
+      if (rows[i].worktreeId === expandedWorktreeId) return rows[i]
+    return null
   }
 
   function focusHandle(handle, label) {
@@ -266,7 +306,7 @@ Panel {
   function handleTextKey(text) {
     if (text === "/") { focusSearch(""); return }
     if (text >= "0" && text <= "9") { focusSearch(search.text + text); return }
-    if (text === "r" || text === "R") { refresh(); setStatus("Refreshed.", false); return }
+    if (text === "r" || text === "R") { refresh(); requestPreviews(expandedRow()); setStatus("Refreshed.", false); return }
     if (text === "o" || text === "O") { openPath(currentRow); return }
     if (text === "f" || text === "F") { focusWorktree(currentRow); return }
     if (text === "e" || text === "E") { toggleExpanded(currentRow); return }
@@ -293,6 +333,25 @@ Panel {
         var result = Model.parseResult(text)
         root.setStatus(Model.switchResultText(result), !result.ok)
         if (result.ok) root.close()
+      }
+    }
+  }
+
+  Process {
+    id: previewProc
+    property string pendingHandle: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var result = Model.parseResult(text)
+        if (result.ok && previewProc.pendingHandle !== "") {
+          var previews = {}
+          for (var key in root.terminalPreviews) previews[key] = root.terminalPreviews[key]
+          previews[previewProc.pendingHandle] = result.lines || []
+          root.terminalPreviews = previews
+        }
+        previewProc.pendingHandle = ""
+        root.pumpPreviewQueue()
       }
     }
   }
@@ -839,7 +898,7 @@ Panel {
     PanelToolTip {
       visible: chipMouse.containsMouse
       text: projectChip.fullName + " · " + Model.workspaceStatusLabel(project.workspaceStatus)
-      fontFamily: fontFamily
+      fontFamily: projectChip.fontFamily
     }
   }
 
@@ -993,6 +1052,28 @@ Panel {
                   maximumLineCount: 2
                   elide: Text.ElideRight
                   Layout.fillWidth: true
+                }
+
+                Rectangle {
+                  readonly property var previewLines: root.previewFor(modelData.terminalHandle)
+                  visible: previewLines.length > 0
+                  Layout.fillWidth: true
+                  implicitHeight: previewText.implicitHeight + Style.space(8)
+                  radius: Style.space(3)
+                  color: Qt.rgba(0, 0, 0, 0.25)
+
+                  Text {
+                    id: previewText
+                    anchors.fill: parent
+                    anchors.margins: Style.space(4)
+                    textFormat: Text.PlainText
+                    text: parent.previewLines.join("\n")
+                    color: root.dim
+                    font.family: "monospace"
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.NoWrap
+                    elide: Text.ElideRight
+                  }
                 }
               }
 
